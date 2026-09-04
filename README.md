@@ -74,10 +74,16 @@ uvx mailrake --ui
 ### Running from source
 
 ```bash
-pip install -e .
+pip install .
 npm --prefix web install && npm --prefix web run build
-python -m mailrake --ui
+mailrake --ui
 ```
+
+For development, `pip install -e .` plus `python -m mailrake --ui` from the
+project root. Note that on some setups an editable install's `.pth` file is
+silently ignored, which leaves the `mailrake` console script unable to import
+the package — running via `python -m mailrake` from the project root always
+works, because the current directory is on the path.
 
 ## Usage
 
