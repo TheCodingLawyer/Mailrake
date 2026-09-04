@@ -93,3 +93,66 @@ async def test_acquire_waits_out_a_cooldown():
     start = time.monotonic()
     await p.acquire()
     assert time.monotonic() - start >= 0.25
+
+
+class TestFinalSweep:
+    """Messages that exhaust their retry budget get one more pass.
+
+    Under sustained throttling a message can burn all 8 attempts and still
+    not land. Reporting it as lost pushes a re-run onto the user; the sweep
+    waits for the quota to refill and tries the stragglers once more.
+    """
+
+    async def test_sweep_recovers_stragglers(self, monkeypatch):
+        from datetime import datetime
+
+        from gmail_unsub.gmail import scan as mod
+
+        monkeypatch.setattr(mod, "SWEEP_PAUSE_SECONDS", 0.0)
+        seen: dict[str, int] = {}
+
+        async def flaky(client, creds, msg_id, pacer, sem):
+            seen[msg_id] = seen.get(msg_id, 0) + 1
+            # "m2" fails the main pass and succeeds on the sweep.
+            if msg_id == "m2" and seen[msg_id] == 1:
+                return None
+            return mod.MessageInfo(id=msg_id, from_name="A", from_email="a@ex.com",
+                                   subject="s", date=datetime(2026, 1, 1))
+
+        monkeypatch.setattr(mod, "_fetch_one", flaky)
+        result = await mod.fetch_metadata(None, ["m1", "m2", "m3"])
+
+        assert result.failed_ids == []
+        assert {m.id for m in result.messages} == {"m1", "m2", "m3"}
+        assert seen["m2"] == 2   # tried again
+        assert seen["m1"] == 1   # successes are not re-fetched
+
+    async def test_genuinely_unreadable_ids_are_reported_not_hidden(self, monkeypatch):
+        from gmail_unsub.gmail import scan as mod
+
+        monkeypatch.setattr(mod, "SWEEP_PAUSE_SECONDS", 0.0)
+
+        async def always_fails(client, creds, msg_id, pacer, sem):
+            return None
+
+        monkeypatch.setattr(mod, "_fetch_one", always_fails)
+        result = await mod.fetch_metadata(None, ["m1", "m2"])
+
+        # The caller must be able to see these; silence would mean a missing
+        # sender and a wrong storage total.
+        assert sorted(result.failed_ids) == ["m1", "m2"]
+        assert result.messages == []
+
+    async def test_sweep_can_be_disabled(self, monkeypatch):
+        from gmail_unsub.gmail import scan as mod
+
+        calls = []
+
+        async def once(client, creds, msg_id, pacer, sem):
+            calls.append(msg_id)
+            return None
+
+        monkeypatch.setattr(mod, "_fetch_one", once)
+        result = await mod.fetch_metadata(None, ["m1"], sweep=False)
+        assert calls == ["m1"]
+        assert result.failed_ids == ["m1"]

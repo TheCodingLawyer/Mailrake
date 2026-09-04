@@ -72,6 +72,8 @@ MAX_RATE = 14.0
 MAX_ATTEMPTS = 8
 # Gmail meters per *minute*, so a short pause just walks back into the wall.
 COOLDOWN_SECONDS = 6.0
+# Pause before the final sweep, long enough for the per-minute budget to refill.
+SWEEP_PAUSE_SECONDS = 45.0
 MAX_CONCURRENCY = 12    # ceiling on in-flight requests; the pacer sets the pace
 
 ProgressFn = Callable[[str, int, int], None]
@@ -427,6 +429,7 @@ async def fetch_metadata(
     ids: Sequence[str],
     progress: ProgressFn | None = None,
     pacer: AdaptivePacer | None = None,
+    sweep: bool = True,
 ) -> FetchResult:
     """Fetch metadata for every id, as fast as Gmail will actually allow."""
     result = FetchResult()
@@ -456,7 +459,28 @@ async def fetch_metadata(
                 progress("fetching", done, total)
 
     fetched = {m.id for m in result.messages}
-    result.failed_ids = [mid for mid in ids if mid not in fetched]
+    leftover = [mid for mid in ids if mid not in fetched]
+
+    # Under sustained quota pressure a message can burn all its attempts and
+    # still not land. Rather than push that onto the user as "re-run me", take
+    # one more pass at the stragglers after the budget has had time to refill.
+    if leftover and sweep:
+        if progress:
+            progress("sweeping", 0, len(leftover))
+        await asyncio.sleep(SWEEP_PAUSE_SECONDS)
+        sweep_pacer = AdaptivePacer(rate=MIN_RATE)
+        async with httpx.AsyncClient(timeout=30.0, limits=limits) as client:
+            swept = await asyncio.gather(*[
+                _fetch_one(client, creds, mid, sweep_pacer, sem) for mid in leftover
+            ])
+        recovered = [m for m in swept if m is not None]
+        result.messages.extend(recovered)
+        if progress:
+            progress("sweeping", len(leftover), len(leftover))
+        fetched |= {m.id for m in recovered}
+        leftover = [mid for mid in leftover if mid not in fetched]
+
+    result.failed_ids = leftover
     result.throttles = pacer.throttles
     result.rate = pacer.rate
     return result

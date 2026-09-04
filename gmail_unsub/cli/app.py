@@ -124,9 +124,11 @@ def _cli_progress(phase: str, done: int, total: int) -> None:
         print(file=sys.stderr)
     _last_phase = phase
 
-    label = "Listing messages" if phase == "listing" else "Reading metadata"
+    label = {"listing": "Listing messages",
+             "fetching": "Reading metadata",
+             "sweeping": "Retrying throttled messages"}.get(phase, phase)
     print(f"\r  • {label}... {done}/{total}", end="", file=sys.stderr)
-    if phase == "fetching" and done >= total:
+    if phase in ("fetching", "sweeping") and done >= total:
         print(file=sys.stderr)
         _last_phase = None
 
