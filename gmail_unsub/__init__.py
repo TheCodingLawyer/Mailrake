@@ -1,3 +1,6 @@
-"""Gmail Auto-Unsubscribe - Properly unsubscribe with confirmation."""
+"""Local-first Gmail control panel: unsubscribe, reclaim storage, stay in control.
 
-__version__ = "1.0.0"
+Everything runs on this machine. The OAuth token never leaves it.
+"""
+
+__version__ = "2.0.0"
