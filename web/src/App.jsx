@@ -168,13 +168,16 @@ export default function App() {
 
           {sensitiveSelected.length > 0 && (
             <div className="banner warn">
-              {sensitiveSelected.length} of your selected senders look sensitive
-              (banks, government, security alerts). They will be skipped unless you
-              confirm each one deliberately.{" "}
+              {sensitiveSelected.length === 1
+                ? "One of your selected senders looks sensitive"
+                : `${sensitiveSelected.length} of your selected senders look sensitive`}
+              {" "}(banks, government, security alerts).{" "}
+              {sensitiveSelected.length === 1 ? "It will be" : "They will be"} skipped
+              unless you confirm deliberately.{" "}
               <button className="danger"
                       onClick={() => act(api.unsubscribe, sensitiveSelected,
                                          { force_sensitive: true })}>
-                Unsubscribe them anyway
+                Unsubscribe {sensitiveSelected.length === 1 ? "it" : "them"} anyway
               </button>
             </div>
           )}
