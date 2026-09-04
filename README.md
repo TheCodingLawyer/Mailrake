@@ -114,13 +114,26 @@ nothing.
 Gmail meters API use against a per-minute quota. When you exhaust it, it
 returns `403` — not `429`, and with no `Retry-After` header to tell you how
 long to wait. Pushing harder does not help; it just converts requests into
-errors.
+errors. Measured against a real mailbox, 25 seconds per probe:
 
-So the scanner measures rather than guesses. It paces itself, watches for
-throttling, halves its rate when it hits the wall and climbs back when it
-stops. Requests that fail are retried, and any message that still could not
-be read is reported rather than dropped — a silently dropped message means a
-missing sender and a wrong storage total.
+| requests/sec | messages lost to 403 |
+|---|---|
+| 5 | 0.0% |
+| 10 | 0.0% |
+| 15 | 9.3% |
+| 25 | 20.1% |
+
+The knee sits between 10 and 15 requests per second — and that is *this*
+project's quota, not a universal constant, which is why the scanner adapts
+instead of hardcoding a number. It paces itself, backs off when it hits the
+wall, and climbs again when it stops being throttled.
+
+**The point of this is completeness, not speed.** Throughput is capped by
+Gmail either way. What changed is that requests which fail are retried, and
+any message that still could not be read is reported to you rather than
+quietly skipped — a dropped message means a missing sender and a wrong
+storage total. An earlier build that fired 15 requests at once with no
+pacing looked faster and silently lost 18% of a mailbox.
 
 Two things keep the work down:
 
