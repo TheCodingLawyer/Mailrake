@@ -54,6 +54,7 @@ def authenticate(scopes: list[str] | None = None):
     if not token_file.exists() and legacy_token.exists():
         try:
             token_file.write_text(legacy_token.read_text(encoding="utf-8"), encoding="utf-8")
+            token_file.chmod(0o600)
             print(f"  • Migrated existing login to {token_file.parent}")
         except OSError:
             token_file = legacy_token
@@ -87,12 +88,22 @@ def authenticate(scopes: list[str] | None = None):
         flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), scopes)
         creds = flow.run_local_server(port=0)
 
-        try:
-            token_file.write_text(creds.to_json(), encoding="utf-8")
-        except OSError as e:
-            print(f"  ! Could not save token: {e}", file=sys.stderr)
+        _save_token(token_file, creds)
 
     return creds
+
+
+def _save_token(path: Path, creds) -> None:
+    """Persist the refresh token, readable only by this user.
+
+    Default file permissions would leave a live Gmail credential
+    world-readable on a shared machine.
+    """
+    try:
+        path.write_text(creds.to_json(), encoding="utf-8")
+        path.chmod(0o600)
+    except OSError as e:
+        print(f"  ! Could not save token: {e}", file=sys.stderr)
 
 
 def build_gmail_service(creds):

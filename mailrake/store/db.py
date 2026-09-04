@@ -97,6 +97,10 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        try:
+            self.path.chmod(0o600)  # the cache holds subject lines and addresses
+        except OSError:
+            pass
         self._conn.executescript(SCHEMA)
         self.set_meta("schema_version", str(SCHEMA_VERSION))
         self._conn.commit()

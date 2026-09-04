@@ -61,16 +61,28 @@ def find_credentials() -> Path | None:
 
     Checks the config dir first, then the working directory, so the pre-2.0
     layout (credentials.json beside the source) keeps working untouched.
+
+    A file found in the working directory is adopted into the config dir, so
+    the command works from anywhere afterwards rather than only from the
+    folder it was first run in.
     """
-    names = ["credentials.json"]
-    for directory in (config_dir(), Path.cwd()):
-        for name in names:
-            candidate = directory / name
-            if candidate.exists():
+    home = config_dir()
+
+    for candidate in (home / "credentials.json", *sorted(home.glob("client_secret_*.json"))):
+        if candidate.exists():
+            return candidate
+
+    cwd = Path.cwd()
+    for candidate in (cwd / "credentials.json", *sorted(cwd.glob("client_secret_*.json"))):
+        if candidate.exists():
+            adopted = home / "credentials.json"
+            try:
+                adopted.write_bytes(candidate.read_bytes())
+                adopted.chmod(0o600)
+                print(f"  • Copied credentials into {home} so this works from any directory.")
+                return adopted
+            except OSError:
                 return candidate
-        matches = sorted(directory.glob("client_secret_*.json"))
-        if matches:
-            return matches[0]
     return None
 
 
