@@ -23,7 +23,7 @@ from ..gmail.actions import (
     trash_messages,
 )
 from ..gmail.auth import SCOPES, SCOPES_NO_FILTERS, authenticate, build_gmail_service
-from ..gmail.scan import group_by_sender, scan
+from ..gmail.scan import MessageInfo, ScanError, group_by_sender, scan
 from ..store.db import Store, import_legacy
 from ..store.paths import config_dir
 from ..store.settings import Settings
@@ -148,7 +148,8 @@ def _run_storage(store: Store) -> int:
     for i, row in enumerate(store.storage_by_sender(25), 1):
         tag = green(" ✓ unsub") if row["has_unsub"] else dim("   —   ")
         name = row["name"] or row["email"]
-        print(f"    {i:>2}. {_fmt_bytes(row['bytes']):>9}  {row['count']:>5} msgs "
+        unit = "msg " if row["count"] == 1 else "msgs"
+        print(f"    {i:>2}. {_fmt_bytes(row['bytes']):>9}  {row['count']:>5} {unit} "
               f"{tag}  {cyan(name[:44])}")
 
     print()
@@ -351,6 +352,34 @@ def _dry_banner(dry_run: bool) -> None:
 # --- entry point ---------------------------------------------------------
 
 
+def _cached_messages(store: Store) -> list[MessageInfo]:
+    """Rehydrate MessageInfo rows from the local cache."""
+    from datetime import datetime
+
+    rows = store._conn.execute(
+        """SELECT m.id, m.sender_email, m.subject, m.date, m.size_estimate,
+                  COALESCE(s.name,'') AS name,
+                  COALESCE(s.list_unsubscribe,'') AS lu,
+                  COALESCE(s.list_unsubscribe_post,'') AS lup
+           FROM messages m
+           LEFT JOIN senders s ON s.email = m.sender_email
+           WHERE m.trashed = 0"""
+    ).fetchall()
+
+    out = []
+    for r in rows:
+        try:
+            date = datetime.fromisoformat(r["date"]) if r["date"] else datetime.fromtimestamp(0)
+        except ValueError:
+            date = datetime.fromtimestamp(0)
+        out.append(MessageInfo(
+            id=r["id"], from_name=r["name"], from_email=r["sender_email"],
+            subject=r["subject"], date=date, size_estimate=r["size_estimate"],
+            list_unsubscribe=r["lu"], list_unsubscribe_post=r["lup"],
+        ))
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -431,14 +460,21 @@ def main(argv: list[str] | None = None) -> int:
             store.set_meta("history_id", history_id)
 
         elapsed = time.time() - started
-        rate = len(infos) / elapsed if elapsed else 0
-        print(dim(f"  • Fetched {len(infos)} messages in {elapsed:.1f}s "
-                  f"({rate:.0f}/s, settled at {result.rate:.0f} req/s)"))
+        if infos:
+            rate = len(infos) / elapsed if elapsed else 0
+            print(dim(f"  • Fetched {len(infos)} messages in {elapsed:.1f}s "
+                      f"({rate:.0f}/s, settled at {result.rate:.0f} req/s)"))
         if result.failed_ids:
             # Never let these pass silently: a dropped message is a missing
             # sender and a wrong storage total.
             print(yellow(f"  ! {len(result.failed_ids)} messages could not be read "
                          f"after retries. Re-run to pick them up."))
+
+        # An incremental run often fetches nothing new. Fall back to the cache
+        # so re-running the tool shows your senders instead of an empty screen.
+        if not infos and skip:
+            infos = _cached_messages(store)
+            print(dim(f"  • Nothing new. Showing {len(infos)} cached messages."))
 
         all_groups = group_by_sender(infos)
         groups = group_by_sender(infos, unsubscribable_only=True)
@@ -472,6 +508,10 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print()
         print(yellow("  • Cancelled by user."))
+        return 1
+    except ScanError as e:
+        print()
+        print(red(f"  ✗ {e}"))
         return 1
     finally:
         store.close()

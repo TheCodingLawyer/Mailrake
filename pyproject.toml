@@ -46,6 +46,11 @@ Issues = "https://github.com/samiatt/gmail-unsub/issues"
 [tool.hatch.version]
 path = "gmail_unsub/__init__.py"
 
+[tool.hatch.build]
+# The compiled frontend is gitignored (it is a build product), and hatchling
+# honours .gitignore -- without this the published wheel ships with no UI.
+artifacts = ["gmail_unsub/server/static/**"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["gmail_unsub"]
 

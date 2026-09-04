@@ -63,7 +63,8 @@ def test_rate_never_climbs_above_the_ceiling():
 
 
 def test_success_recovers_rate_after_a_throttle():
-    p = AdaptivePacer(rate=20.0)
+    # Start below MAX_RATE so the recovery is not clamped by the ceiling.
+    p = AdaptivePacer(rate=MAX_RATE * 0.7)
     p.on_throttle()
     knocked_down = p.rate
     for _ in range(25):

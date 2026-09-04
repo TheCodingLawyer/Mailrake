@@ -77,3 +77,42 @@ def test_destructive_endpoints_are_all_guarded(client):
                  "/api/retry-failed", "/api/trust", "/api/scan"):
         r = client.post(path, json={"emails": ["x@example.com"]})
         assert r.status_code == 401, f"{path} was reachable without a token"
+
+
+def test_api_refuses_sensitive_senders_without_explicit_force(tmp_path):
+    """The sensitivity guard must hold at the API boundary, not just the UI.
+
+    A bug here would let a mis-click unsubscribe someone from their bank.
+    """
+    from datetime import datetime
+
+    from gmail_unsub.gmail.scan import MessageInfo, group_by_sender
+
+    store = Store(tmp_path / "s.db")
+    state = AppState(store=store, settings=Settings.load(store))
+    state.groups = group_by_sender([
+        MessageInfo(id="1", from_name="Google Accounts",
+                    from_email="no-reply@accounts.google.com",
+                    subject="Security alert", date=datetime(2026, 1, 1),
+                    list_unsubscribe="<https://ex.com/u>"),
+        MessageInfo(id="2", from_name="Deals", from_email="deals@shop.example",
+                    subject="Sale", date=datetime(2026, 1, 1),
+                    list_unsubscribe="<https://ex.com/u>"),
+    ], unsubscribable_only=True)
+
+    app = create_app(state)
+    with TestClient(app, base_url="http://127.0.0.1:8123") as c:
+        headers = {"X-Session-Token": SESSION_TOKEN}
+        body = {"emails": ["no-reply@accounts.google.com", "deals@shop.example"],
+                "dry_run": True, "trash": False}
+
+        results = c.post("/api/unsubscribe", json=body, headers=headers).json()["results"]
+        by_email = {r["email"]: r for r in results}
+        assert by_email["no-reply@accounts.google.com"]["skipped"] == "sensitive"
+        assert by_email["deals@shop.example"]["ok"] is True
+
+        # ...and proceeds only when the caller opts in explicitly.
+        forced = c.post("/api/unsubscribe", json={**body, "force_sensitive": True},
+                        headers=headers).json()["results"]
+        assert all(r["ok"] for r in forced)
+    store.close()

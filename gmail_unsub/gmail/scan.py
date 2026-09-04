@@ -52,13 +52,27 @@ BULK_QUERY = "(category:promotions OR category:updates OR category:forums) -in:c
 # sustains ~36 req/s and loses ~18% of messages to 403s. Guessing a safe fixed
 # rate is fragile because the budget varies per project, so the pacer below
 # finds the ceiling by observation instead.
-INITIAL_RATE = 18.0     # requests/second at start
+# Measured against a real mailbox at fixed rates, 25s per probe:
+#
+#     rate   403 loss
+#      5/s      0.0%
+#     10/s      0.0%
+#     15/s      9.3%
+#     25/s     20.1%
+#
+# The knee sits between 10 and 15. Starting above it (an earlier build began
+# at 18) just throttles immediately and thrashes down to the floor, so start
+# at the known-good rate and let the pacer probe a little above it.
+#
+# These numbers are one project's quota, not a universal constant, which is
+# the reason the pacer adapts instead of hardcoding a rate.
+INITIAL_RATE = 10.0     # requests/second at start
 MIN_RATE = 3.0
-MAX_RATE = 40.0
+MAX_RATE = 14.0
 MAX_ATTEMPTS = 8
 # Gmail meters per *minute*, so a short pause just walks back into the wall.
 COOLDOWN_SECONDS = 6.0
-MAX_CONCURRENCY = 20    # ceiling on in-flight requests; the pacer sets the pace
+MAX_CONCURRENCY = 12    # ceiling on in-flight requests; the pacer sets the pace
 
 ProgressFn = Callable[[str, int, int], None]
 
@@ -282,14 +296,25 @@ def build_query(days: int, bulk_only: bool = True, extra: str = "") -> str:
 # --- listing -------------------------------------------------------------
 
 
+class ScanError(RuntimeError):
+    """Scanning could not proceed -- shown to the user, never as a traceback."""
+
+
 async def list_message_ids(
     client: httpx.AsyncClient,
     creds,
     query: str,
     max_results: int,
     progress: ProgressFn | None = None,
+    pacer: AdaptivePacer | None = None,
 ) -> list[str]:
-    """Page through messages.list. One unit per call, so this is cheap."""
+    """Page through messages.list.
+
+    Listing is only one quota unit per call, but it draws on the same
+    per-minute budget as everything else, so it can be throttled too --
+    and being throttled here used to abort the whole scan with a traceback.
+    """
+    pacer = pacer or AdaptivePacer()
     ids: list[str] = []
     page_token: str | None = None
 
@@ -302,13 +327,41 @@ async def list_message_ids(
         if page_token:
             params["pageToken"] = page_token
 
-        resp = await client.get(
-            f"{GMAIL_API}/messages",
-            params=params,
-            headers={"Authorization": f"Bearer {_bearer(creds)}"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        data = None
+        for attempt in range(MAX_ATTEMPTS):
+            await pacer.acquire()
+            try:
+                resp = await client.get(
+                    f"{GMAIL_API}/messages",
+                    params=params,
+                    headers={"Authorization": f"Bearer {_bearer(creds)}"},
+                )
+            except httpx.HTTPError as e:
+                if attempt == MAX_ATTEMPTS - 1:
+                    raise ScanError(f"Could not reach Gmail: {e}") from e
+                await asyncio.sleep(1.0 * (attempt + 1))
+                continue
+
+            if resp.status_code in (403, 429, 500, 502, 503):
+                retry_after = resp.headers.get("Retry-After")
+                pacer.on_throttle(float(retry_after) if retry_after else None)
+                continue
+            if resp.status_code == 401:
+                raise ScanError("Gmail rejected the login. Re-run to sign in again.")
+            if resp.status_code != 200:
+                raise ScanError(
+                    f"Gmail returned HTTP {resp.status_code} while listing messages."
+                )
+
+            data = resp.json()
+            pacer.on_success()
+            break
+
+        if data is None:
+            raise ScanError(
+                "Gmail kept refusing the request (quota exhausted). "
+                "Wait a minute and run again -- progress so far is cached."
+            )
 
         ids.extend(m["id"] for m in data.get("messages", []))
         if progress:
@@ -420,17 +473,21 @@ async def scan_async(
     """Full scan. Returns the fetch result and the mailbox's current historyId."""
     query = build_query(days, bulk_only)
 
+    # One pacer for the whole scan: both phases draw on the same quota, so
+    # what listing learns about the limit should carry into fetching.
+    pacer = AdaptivePacer()
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         headers = {"Authorization": f"Bearer {_bearer(creds)}"}
         profile = await client.get(f"{GMAIL_API}/profile", headers=headers)
         history_id = profile.json().get("historyId") if profile.status_code == 200 else None
 
-        ids = await list_message_ids(client, creds, query, max_emails, progress)
+        ids = await list_message_ids(client, creds, query, max_emails, progress, pacer)
 
     if skip_ids:
         ids = [i for i in ids if i not in skip_ids]
 
-    result = await fetch_metadata(creds, ids, progress)
+    result = await fetch_metadata(creds, ids, progress, pacer)
     return result, history_id
 
 
