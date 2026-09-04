@@ -8,10 +8,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from gmail_unsub.server.app import AppState, create_app
-from gmail_unsub.server.security import SESSION_TOKEN
-from gmail_unsub.store.db import Store
-from gmail_unsub.store.settings import Settings
+from mailrake.server.app import AppState, create_app
+from mailrake.server.security import SESSION_TOKEN
+from mailrake.store.db import Store
+from mailrake.store.settings import Settings
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def test_api_refuses_sensitive_senders_without_explicit_force(tmp_path):
     """
     from datetime import datetime
 
-    from gmail_unsub.gmail.scan import MessageInfo, group_by_sender
+    from mailrake.gmail.scan import MessageInfo, group_by_sender
 
     store = Store(tmp_path / "s.db")
     state = AppState(store=store, settings=Settings.load(store))

@@ -3,11 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-# NOTE: distribution name is still the working name; see README "Naming" before
-# publishing to PyPI. The import package stays `gmail_unsub` either way.
-name = "gmail-unsub"
+name = "mailrake"
 dynamic = ["version"]
-description = "Local-first Gmail control panel: unsubscribe in bulk and see where your storage went. Your email never leaves your machine."
+description = "Rake out your Gmail: unsubscribe in bulk and see where your storage went. Runs entirely on your machine."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -37,22 +35,22 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.scripts]
-gmail-unsub = "gmail_unsub.cli.app:run"
+mailrake = "mailrake.cli.app:run"
 
 [project.urls]
-Homepage = "https://github.com/samiatt/gmail-unsub"
-Issues = "https://github.com/samiatt/gmail-unsub/issues"
+Homepage = "https://github.com/samiatt/mailrake"
+Issues = "https://github.com/samiatt/mailrake/issues"
 
 [tool.hatch.version]
-path = "gmail_unsub/__init__.py"
+path = "mailrake/__init__.py"
 
 [tool.hatch.build]
 # The compiled frontend is gitignored (it is a build product), and hatchling
 # honours .gitignore -- without this the published wheel ships with no UI.
-artifacts = ["gmail_unsub/server/static/**"]
+artifacts = ["mailrake/server/static/**"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["gmail_unsub"]
+packages = ["mailrake"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

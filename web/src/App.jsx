@@ -111,7 +111,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="header">
-        <h1>Gmail Control Panel</h1>
+        <h1>mailrake</h1>
         <span className="badge">local only</span>
       </div>
       <p className="subtitle">

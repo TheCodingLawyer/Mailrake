@@ -10,7 +10,8 @@ import os
 import sys
 from pathlib import Path
 
-APP_DIR_NAME = "gmail-unsub"
+APP_DIR_NAME = "mailrake"
+LEGACY_APP_DIR_NAME = "gmail-unsub"  # pre-rename; migrated on first run
 
 
 def config_dir() -> Path:
@@ -23,8 +24,28 @@ def config_dir() -> Path:
         base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
 
     path = Path(base) / APP_DIR_NAME
+    if not path.exists():
+        _adopt_legacy_dir(Path(base) / LEGACY_APP_DIR_NAME, path)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _adopt_legacy_dir(old: Path, new: Path) -> None:
+    """Carry state over from the pre-rename directory.
+
+    A rename must not cost the user their login, their trusted senders or
+    their action history. Copy rather than move, so a downgrade still works.
+    """
+    if not old.is_dir():
+        return
+    try:
+        new.mkdir(parents=True, exist_ok=True)
+        for item in old.iterdir():
+            if item.is_file() and not (new / item.name).exists():
+                (new / item.name).write_bytes(item.read_bytes())
+        print(f"  • Adopted existing state from {old.name}/ (rename to {new.name})")
+    except OSError:
+        pass
 
 
 def db_path() -> Path:

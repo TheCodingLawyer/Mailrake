@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from gmail_unsub.core.classifier import check_sender
-from gmail_unsub.core.unsubscribe import (
+from mailrake.core.classifier import check_sender
+from mailrake.core.unsubscribe import (
     choose_target,
     describe_targets,
     parse_list_unsubscribe,
 )
-from gmail_unsub.store.settings import DEFAULT_SENSITIVE_KEYWORDS
+from mailrake.store.settings import DEFAULT_SENSITIVE_KEYWORDS
 
 KW = DEFAULT_SENSITIVE_KEYWORDS
 

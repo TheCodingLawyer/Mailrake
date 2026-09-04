@@ -31,4 +31,4 @@ state.db-shm
 
 # Frontend
 web/node_modules/
-gmail_unsub/server/static/
+mailrake/server/static/

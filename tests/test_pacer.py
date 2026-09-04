@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from gmail_unsub.gmail.scan import MAX_RATE, MIN_RATE, AdaptivePacer
+from mailrake.gmail.scan import MAX_RATE, MIN_RATE, AdaptivePacer
 
 
 def test_starts_at_the_initial_rate():
@@ -106,7 +106,7 @@ class TestFinalSweep:
     async def test_sweep_recovers_stragglers(self, monkeypatch):
         from datetime import datetime
 
-        from gmail_unsub.gmail import scan as mod
+        from mailrake.gmail import scan as mod
 
         monkeypatch.setattr(mod, "SWEEP_PAUSE_SECONDS", 0.0)
         seen: dict[str, int] = {}
@@ -128,7 +128,7 @@ class TestFinalSweep:
         assert seen["m1"] == 1   # successes are not re-fetched
 
     async def test_genuinely_unreadable_ids_are_reported_not_hidden(self, monkeypatch):
-        from gmail_unsub.gmail import scan as mod
+        from mailrake.gmail import scan as mod
 
         monkeypatch.setattr(mod, "SWEEP_PAUSE_SECONDS", 0.0)
 
@@ -144,7 +144,7 @@ class TestFinalSweep:
         assert result.messages == []
 
     async def test_sweep_can_be_disabled(self, monkeypatch):
-        from gmail_unsub.gmail import scan as mod
+        from mailrake.gmail import scan as mod
 
         calls = []
 

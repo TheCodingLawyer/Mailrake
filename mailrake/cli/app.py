@@ -1,4 +1,4 @@
-"""Terminal front-end: python -m gmail_unsub
+"""Terminal front-end: python -m mailrake
 
 Every flag from 1.x still works. What changed underneath is that state
 lives in SQLite rather than JSON files in the working directory, and the
@@ -42,7 +42,7 @@ from .interactive import (
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="gmail-unsub",
+        prog="mailrake",
         description="Unsubscribe from Gmail senders in bulk, safely and locally. "
                     "Nothing leaves your machine.",
     )
@@ -82,7 +82,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _print_header() -> None:
-    print(bold(cyan("\n  Gmail Control Panel")))
+    print(bold(cyan("\n  mailrake")))
     print(dim("  Local-first. Your mail never leaves this machine."))
     print()
 

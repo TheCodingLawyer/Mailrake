@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   base: "/assets/",
   build: {
-    outDir: "../gmail_unsub/server/static",
+    outDir: "../mailrake/server/static",
     emptyOutDir: true,
     assetsDir: "",
   },

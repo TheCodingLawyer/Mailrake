@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from gmail_unsub.store.db import Store
+from mailrake.store.db import Store
 
 
 @pytest.fixture

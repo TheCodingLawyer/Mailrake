@@ -1,4 +1,4 @@
-# Gmail Control Panel
+# mailrake
 
 Unsubscribe from mailing lists in bulk and find out where your Gmail storage
 actually went — from a browser UI or the terminal.
@@ -8,7 +8,7 @@ and no third party that ever sees your email. Your Google token is stored in
 your own OS config directory and used only by the process you started.
 
 ```bash
-uvx gmail-unsub --ui
+uvx mailrake --ui
 ```
 
 ---
@@ -61,14 +61,14 @@ subscription: you are the developer of your own client.
 5. Save that file as `credentials.json` in the config directory:
 
 ```bash
-gmail-unsub --where
+mailrake --where
 ```
 
 Then run it. Your browser opens Google's consent screen once; after that a
 refresh token is cached locally.
 
 ```bash
-uvx gmail-unsub --ui
+uvx mailrake --ui
 ```
 
 ### Running from source
@@ -76,7 +76,7 @@ uvx gmail-unsub --ui
 ```bash
 pip install -e .
 npm --prefix web install && npm --prefix web run build
-python -m gmail_unsub --ui
+python -m mailrake --ui
 ```
 
 ## Usage
@@ -84,7 +84,7 @@ python -m gmail_unsub --ui
 The browser UI and the terminal share one engine, so they behave identically.
 
 ```
-gmail-unsub [options]
+mailrake [options]
 
   --ui               Open the browser control panel
   --storage          Show the storage breakdown (uses cache, no network)
@@ -123,17 +123,22 @@ errors. Measured against a real mailbox, 25 seconds per probe:
 | 15 | 9.3% |
 | 25 | 20.1% |
 
-The knee sits between 10 and 15 requests per second — and that is *this*
-project's quota, not a universal constant, which is why the scanner adapts
-instead of hardcoding a number. It paces itself, backs off when it hits the
-wall, and climbs again when it stops being throttled.
+That table measures *bursts*, though, and the quota is a per-minute budget —
+so a rate that passes a 25-second probe can still exhaust the bucket over a
+longer run. A sustained 800-message scan settles nearer 5 messages/second than
+10. This is exactly why the scanner adapts rather than hardcoding a number:
+the safe rate depends on your quota, your mailbox and how long you have been
+running.
 
 **The point of this is completeness, not speed.** Throughput is capped by
-Gmail either way. What changed is that requests which fail are retried, and
-any message that still could not be read is reported to you rather than
-quietly skipped — a dropped message means a missing sender and a wrong
-storage total. An earlier build that fired 15 requests at once with no
-pacing looked faster and silently lost 18% of a mailbox.
+Gmail either way. What changed is that failed requests are retried, stragglers
+get a final sweep once the quota refills, and anything still unreadable is
+reported to you rather than quietly skipped — a dropped message means a
+missing sender and a wrong storage total.
+
+Measured on a real mailbox, 800 messages: **800 fetched, 0 dropped, 156s.**
+For comparison, an unpaced build firing 15 requests at once looked faster and
+silently lost 18%.
 
 Two things keep the work down:
 
@@ -148,9 +153,9 @@ One directory, which `--where` will print:
 
 | Platform | Location |
 |---|---|
-| macOS | `~/Library/Application Support/gmail-unsub/` |
-| Linux | `~/.config/gmail-unsub/` |
-| Windows | `%APPDATA%\gmail-unsub\` |
+| macOS | `~/Library/Application Support/mailrake/` |
+| Linux | `~/.config/mailrake/` |
+| Windows | `%APPDATA%\mailrake\` |
 
 It holds `credentials.json` (your OAuth client), `token.json` (your refresh
 token) and `state.db` (SQLite: scanned senders, storage figures, and an
@@ -183,11 +188,6 @@ pip install -e ".[dev]"
 pytest                              # engine, storage, pacer, server hardening
 npm --prefix web run dev            # frontend with hot reload
 ```
-
-## Naming
-
-The package is still called `gmail-unsub`, which describes half of what it now
-does and is hard to search for. Worth changing before this goes public.
 
 ## Disclaimer
 

@@ -99,7 +99,7 @@ class SenderAction(BaseModel):
 def create_app(state: AppState) -> FastAPI:
     global STATE
     STATE = state
-    app = FastAPI(title="Gmail Control Panel", docs_url=None, redoc_url=None)
+    app = FastAPI(title="mailrake", docs_url=None, redoc_url=None)
     api = [Depends(guard)]
 
     # --- read ------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""python -m gmail_unsub"""
+"""python -m mailrake"""
 from .cli.app import run
 
 run()
