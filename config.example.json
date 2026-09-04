@@ -1,0 +1,18 @@
+{
+  "scan_days": 90,
+  "max_senders": 200,
+  "max_emails": 2000,
+  "sensitive_keywords": [
+    "bank", "chase", "wells", "fargo", "citi", "hsbc", "barclays",
+    "irs", "hmrc", "tax", "gov", "court", "legal",
+    "account", "statement", "receipt", "invoice", "billing",
+    "paypal", "venmo", "stripe", "square", "cashapp",
+    "security", "verify", "login", "alert", "password", "reset",
+    "2fa", "two-factor", "authentication", "confirm", "suspicious",
+    "doctor", "medical", "health", "pharmacy", "insurance",
+    "university", "school", "transcript", "enrollment"
+  ],
+  "always_trust_senders": [],
+  "never_trust_senders": [],
+  "rate_limit_seconds": 1.0
+}

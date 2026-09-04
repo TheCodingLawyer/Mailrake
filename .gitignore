@@ -1,0 +1,25 @@
+# OAuth client secrets (download from Google Cloud Console)
+credentials.json
+
+# Cached OAuth refresh token (auto-generated on first login)
+token.json
+
+# Audit logs
+unsub-log-*.json
+failed-unsubs.json
+
+# Config overrides
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
