@@ -566,6 +566,25 @@ def scan(
 # --- grouping ------------------------------------------------------------
 
 
+def message_from_cache_row(row) -> MessageInfo:
+    """Rebuild a MessageInfo from a cached database row."""
+    try:
+        date = datetime.fromisoformat(row["date"]) if row["date"] else datetime.fromtimestamp(0)
+    except (ValueError, TypeError):
+        date = datetime.fromtimestamp(0)
+    return MessageInfo(
+        id=row["id"], from_name=row["name"], from_email=row["sender_email"],
+        subject=row["subject"], date=date, size_estimate=row["size_estimate"],
+        list_unsubscribe=row["lu"], list_unsubscribe_post=row["lup"],
+    )
+
+
+def groups_from_cache(store, unsubscribable_only: bool = False) -> list[SenderGroup]:
+    """Build sender groups from everything cached, not just the last scan."""
+    infos = [message_from_cache_row(r) for r in store.cached_message_rows()]
+    return group_by_sender(infos, unsubscribable_only=unsubscribable_only)
+
+
 def group_by_sender(
     infos: Iterable[MessageInfo], unsubscribable_only: bool = False
 ) -> list[SenderGroup]:

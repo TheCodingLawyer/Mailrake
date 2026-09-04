@@ -116,3 +116,30 @@ class TestInflectedKeywords:
     ])
     def test_unrelated_senders_stay_clean(self, email, name):
         assert not check_sender(email, name, KW).is_sensitive
+
+
+class TestSensitivityOutranksTrust:
+    """A sender marked 'always unsubscribe' can still be sensitive.
+
+    Trust was granted under whatever keyword list existed at the time, and
+    that list has since grown. Silently auto-unsubscribing from a bank is
+    this tool's worst failure mode, so the check always runs.
+    """
+
+    def test_a_trusted_bank_is_still_flagged(self):
+        # Being on the trusted list changes nothing about classification.
+        result = check_sender("hsbcuk@mail01.hsbc.co.uk", "HSBC UK", KW)
+        assert result.is_sensitive
+        assert "hsbc" in result.reasons
+
+    def test_cli_asks_before_unsubscribing_a_trusted_sensitive_sender(self, tmp_path):
+        import inspect
+
+        from mailrake.cli import interactive
+
+        source = inspect.getsource(interactive.run_interactive)
+        # The trusted fast-path must be guarded by the sensitivity result,
+        # otherwise a trusted bank is unsubscribed with no prompt at all.
+        assert "is_trusted(group.email) and not sens.is_sensitive" in source
+        # ...and the check must be computed before that branch is reached.
+        assert source.index("sens = check_sender") < source.index("is_trusted(group.email)")

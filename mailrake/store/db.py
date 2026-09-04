@@ -264,6 +264,23 @@ class Store:
                                m.list_unsubscribe, m.list_unsubscribe_post)
         return len(messages)
 
+    def cached_message_rows(self) -> list[sqlite3.Row]:
+        """Every cached message, joined to its sender's unsubscribe headers.
+
+        This is what the views are built from. A scan returns only what it
+        newly fetched, so rendering from the scan result alone makes an
+        already-cached mailbox look empty.
+        """
+        return self._conn.execute(
+            """SELECT m.id, m.sender_email, m.subject, m.date, m.size_estimate,
+                      COALESCE(s.name,'')                  AS name,
+                      COALESCE(s.list_unsubscribe,'')      AS lu,
+                      COALESCE(s.list_unsubscribe_post,'') AS lup
+               FROM messages m
+               LEFT JOIN senders s ON s.email = m.sender_email
+               WHERE m.trashed = 0"""
+        ).fetchall()
+
     def known_message_ids(self) -> set[str]:
         """Ids already cached, so an incremental scan can skip them."""
         return {

@@ -23,7 +23,7 @@ from ..gmail.actions import (
     trash_messages,
 )
 from ..gmail.auth import SCOPES, SCOPES_NO_FILTERS, authenticate, build_gmail_service
-from ..gmail.scan import MessageInfo, ScanError, group_by_sender, scan
+from ..gmail.scan import ScanError, group_by_sender, groups_from_cache, scan
 from ..store.db import Store, import_legacy
 from ..store.paths import config_dir
 from ..store.settings import Settings
@@ -371,34 +371,6 @@ def _dry_banner(dry_run: bool) -> None:
 # --- entry point ---------------------------------------------------------
 
 
-def _cached_messages(store: Store) -> list[MessageInfo]:
-    """Rehydrate MessageInfo rows from the local cache."""
-    from datetime import datetime
-
-    rows = store._conn.execute(
-        """SELECT m.id, m.sender_email, m.subject, m.date, m.size_estimate,
-                  COALESCE(s.name,'') AS name,
-                  COALESCE(s.list_unsubscribe,'') AS lu,
-                  COALESCE(s.list_unsubscribe_post,'') AS lup
-           FROM messages m
-           LEFT JOIN senders s ON s.email = m.sender_email
-           WHERE m.trashed = 0"""
-    ).fetchall()
-
-    out = []
-    for r in rows:
-        try:
-            date = datetime.fromisoformat(r["date"]) if r["date"] else datetime.fromtimestamp(0)
-        except ValueError:
-            date = datetime.fromtimestamp(0)
-        out.append(MessageInfo(
-            id=r["id"], from_name=r["name"], from_email=r["sender_email"],
-            subject=r["subject"], date=date, size_estimate=r["size_estimate"],
-            list_unsubscribe=r["lu"], list_unsubscribe_post=r["lup"],
-        ))
-    return out
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -506,14 +478,10 @@ def main(argv: list[str] | None = None) -> int:
             print(yellow(f"  ! {len(result.failed_ids)} messages could not be read "
                          f"after retries. Re-run to pick them up."))
 
-        # An incremental run often fetches nothing new. Fall back to the cache
-        # so re-running the tool shows your senders instead of an empty screen.
-        if not infos and skip:
-            infos = _cached_messages(store)
-            print(dim(f"  • Nothing new. Showing {len(infos)} cached messages."))
-
-        all_groups = group_by_sender(infos)
-        groups = group_by_sender(infos, unsubscribable_only=True)
+        # Always render from the full cache, not just what this run fetched.
+        # A scan that correctly finds nothing new must not show an empty list.
+        all_groups = groups_from_cache(store)
+        groups = groups_from_cache(store, unsubscribable_only=True)
         print(dim(f"  • {len(all_groups)} unique senders, "
                   f"{len(groups)} with unsubscribe links"))
         print()

@@ -124,18 +124,28 @@ def run_interactive(
 
     for i in range(total):
         group = groups[i]
-        if group.email.lower() in (s.lower() for s in config.always_trust_senders):
+        sens = check_sender(group.email, group.name, config.sensitive_keywords)
+
+        # Sensitivity outranks trust, deliberately. A sender marked "always"
+        # in an earlier run was approved under whatever keyword list existed
+        # then; the list has grown since. Auto-unsubscribing from a bank with
+        # no prompt is this tool's worst possible failure, so it always asks.
+        # This also keeps the CLI consistent with the browser UI, which has
+        # always applied the check regardless of trust.
+        if config.is_trusted(group.email) and not sens.is_sensitive:
             print(_display_sender(group, i + 1, total))
-            print(dim(f"  → auto-unsubscribe (saved from previous run)"))
+            print(dim("  → auto-unsubscribe (saved from previous run)"))
             print()
             _do_unsubscribe(service, group, config, dry_run, trash_enabled, summary)
             time.sleep(config.rate_limit_seconds)
             continue
 
-        sens = check_sender(group.email, group.name, config.sensitive_keywords)
         if sens.is_sensitive:
             print(_display_sender(group, i + 1, total))
             print(red(f"  ⚠ SENSITIVE — matches: {', '.join(sens.reasons)}"))
+            if config.is_trusted(group.email):
+                print(dim("    (marked always-unsubscribe previously, but it "
+                          "looks sensitive — confirming again)"))
             choice = _prompt_choice(allow_force=True)
             if choice == "f":
                 print(dim("  → forced through sensitivity filter"))

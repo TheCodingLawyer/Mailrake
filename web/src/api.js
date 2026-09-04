@@ -23,6 +23,7 @@ export const api = {
   storage: () => call("/storage"),
   history: () => call("/history"),
   scan: (body) => call("/scan", { method: "POST", body: JSON.stringify(body) }),
+  cancelScan: () => call("/scan/cancel", { method: "POST" }),
   unsubscribe: (body) => call("/unsubscribe", { method: "POST", body: JSON.stringify(body) }),
   trust: (body) => call("/trust", { method: "POST", body: JSON.stringify(body) }),
   block: (body) => call("/block", { method: "POST", body: JSON.stringify(body) }),

@@ -39,6 +39,13 @@ export default function App() {
           + (event.dropped ? `, ${event.dropped} unreadable` : ""),
       }, ...l]);
       refresh();
+    } else if (event.type === "cancelled") {
+      setProgress(null);
+      setLog((l) => [{
+        ok: true,
+        text: `Scan stopped — ${event.cached} messages kept. Scanning again resumes from here.`,
+      }, ...l]);
+      refresh();
     } else if (event.type === "error") {
       setProgress(null);
       setError(event.message);
@@ -51,6 +58,24 @@ export default function App() {
       await api.scan({ fresh });
       setProgress({ phase: "listing", done: 0, total: 0 });
     } catch (e) { setError(e.message); }
+  };
+
+  const stopScan = async () => {
+    try {
+      await api.cancelScan();
+    } catch (e) { setError(e.message); }
+  };
+
+  // A full rescan re-reads everything and can take a long time on a large
+  // mailbox, so make it a deliberate choice rather than a neighbouring button.
+  const confirmFullRescan = () => {
+    const n = session?.cached_ids || 0;
+    const msg = n
+      ? `Re-read all ${n.toLocaleString()} cached messages from Gmail?\n\n`
+        + "Gmail rate-limits this to roughly 5 messages a second, so it can "
+        + "take a while. \"Scan for new\" is usually what you want."
+      : "Start a full scan of your mailbox?";
+    if (window.confirm(msg)) startScan(true);
   };
 
   const act = async (fn, emails, extra = {}) => {
@@ -142,13 +167,29 @@ export default function App() {
       {tab === "unsubscribe" && (
         <>
           <div className="toolbar">
-            <button className="primary" onClick={() => startScan(false)}
-                    disabled={!!progress}>
-              {senders.length ? "Scan for new" : "Scan mailbox"}
-            </button>
-            <button onClick={() => startScan(true)} disabled={!!progress}>
-              Full rescan
-            </button>
+            {progress ? (
+              <>
+                <button className="danger" onClick={stopScan}>
+                  Stop scan
+                </button>
+                <span className="hint">
+                  Anything already read is saved — stopping loses nothing.
+                </span>
+              </>
+            ) : (
+              <>
+                <button className="primary" onClick={() => startScan(false)}>
+                  {session?.cached_ids ? "Scan for new" : "Scan mailbox"}
+                </button>
+                <button onClick={confirmFullRescan}>Full rescan</button>
+                {session?.cached_ids > 0 && (
+                  <span className="hint">
+                    {session.cached_ids.toLocaleString()} messages cached —
+                    {" "}&ldquo;Scan for new&rdquo; skips them
+                  </span>
+                )}
+              </>
+            )}
             <span className="spacer" />
             <label className="check">
               <input type="checkbox" checked={dryRun}

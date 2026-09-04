@@ -37,7 +37,7 @@ from ..gmail.actions import (
     trash_messages,
 )
 from ..gmail.auth import SCOPES, authenticate, build_gmail_service
-from ..gmail.scan import group_by_sender, scan_async
+from ..gmail.scan import groups_from_cache, scan_async
 from ..store.db import Store
 from ..store.settings import Settings
 from .security import SESSION_TOKEN, guard
@@ -56,6 +56,8 @@ class AppState:
     service: Any = None
     groups: list = field(default_factory=list)
     scanning: bool = False
+    scan_task: Any = None          # the in-flight asyncio.Task, for cancellation
+    last_scan: dict = field(default_factory=dict)
     progress: dict = field(default_factory=lambda: {"phase": "idle", "done": 0, "total": 0})
     listeners: list[asyncio.Queue] = field(default_factory=list)
 
@@ -112,6 +114,8 @@ def create_app(state: AppState) -> FastAPI:
             "scanning": state.scanning,
             "progress": state.progress,
             "cached": totals,
+            "cached_ids": len(state.store.known_message_ids()),
+            "last_scan": state.last_scan,
             "trusted": len(state.store.trusted_senders()),
             "failures": len(state.store.failures()),
             "settings": {
@@ -161,8 +165,18 @@ def create_app(state: AppState) -> FastAPI:
     async def start_scan(req: ScanRequest):
         if state.scanning:
             raise HTTPException(409, "A scan is already running")
-        asyncio.create_task(_run_scan(state, req))
-        return {"started": True}
+        state.scanning = True          # set here so a fast second call still 409s
+        state.scan_task = asyncio.create_task(_run_scan(state, req))
+        return {"started": True, "fresh": req.fresh}
+
+    @app.post("/api/scan/cancel", dependencies=api)
+    async def cancel_scan():
+        """Stop an in-flight scan. Whatever was fetched is already saved."""
+        task = state.scan_task
+        if task is None or task.done():
+            return {"cancelled": False, "reason": "no scan running"}
+        task.cancel()
+        return {"cancelled": True}
 
     @app.get("/api/events", dependencies=api)
     async def events():
@@ -233,7 +247,6 @@ def create_app(state: AppState) -> FastAPI:
 
 
 async def _run_scan(state: AppState, req: ScanRequest) -> None:
-    state.scanning = True
     days = req.days if req.days is not None else state.settings.scan_days
     max_emails = req.max_emails or state.settings.max_emails
     bulk_only = state.settings.bulk_only if req.bulk_only is None else req.bulk_only
@@ -259,17 +272,30 @@ async def _run_scan(state: AppState, req: ScanRequest) -> None:
         if history_id:
             state.store.set_meta("history_id", history_id)
 
-        state.groups = group_by_sender(result.messages, unsubscribable_only=True)
+        # Build from the full cache, not just this scan's slice. Otherwise a
+        # rescan that correctly fetches nothing new empties the whole list.
+        state.groups = groups_from_cache(state.store, unsubscribable_only=True)
+        state.last_scan = {"fetched": len(result.messages),
+                           "dropped": len(result.failed_ids),
+                           "cancelled": False}
         state.publish({
             "type": "done",
             "fetched": len(result.messages),
             "dropped": len(result.failed_ids),
             "senders": len(state.groups),
         })
+    except asyncio.CancelledError:
+        # Partial results were already written to the cache as they arrived.
+        state.groups = groups_from_cache(state.store, unsubscribable_only=True)
+        state.last_scan = {"cancelled": True}
+        state.publish({"type": "cancelled", "senders": len(state.groups),
+                       "cached": state.store.totals()["messages"]})
     except Exception as e:  # surface, never swallow
+        state.groups = groups_from_cache(state.store, unsubscribable_only=True)
         state.publish({"type": "error", "message": str(e)})
     finally:
         state.scanning = False
+        state.scan_task = None
         state.progress = {"phase": "idle", "done": 0, "total": 0}
 
 
@@ -407,6 +433,10 @@ def serve(store: Store, settings: Settings, open_browser: bool = True) -> int:
     print("  ✓ Authenticated.\n")
 
     state = AppState(store=store, settings=settings, creds=creds, service=service)
+    # Show what is already cached immediately, without requiring a scan first.
+    state.groups = groups_from_cache(store, unsubscribable_only=True)
+    if state.groups:
+        print(f"  {len(state.groups)} senders loaded from cache.")
     app = create_app(state)
 
     port = _free_port()
