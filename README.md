@@ -146,12 +146,19 @@ Measured on a real mailbox, 800 messages: **800 fetched, 0 dropped, 156s.**
 For comparison, an unpaced build firing 15 requests at once looked faster and
 silently lost 18%.
 
-Two things keep the work down:
+Three things keep the work down:
 
 - The default scan targets the Promotions, Updates and Forums categories,
   where bulk mail actually lives, instead of walking your whole mailbox.
   Use `--all-mail` to widen it.
 - Results are cached locally, so later scans fetch only what is new.
+- **Scans are resumable.** Results are written to the cache as they arrive,
+  not at the end. Press Ctrl+C, close the terminal, lose your connection —
+  whatever was fetched is kept, and running again picks up where it stopped.
+
+A first scan over a large mailbox genuinely can take half an hour. `mailrake`
+tells you the estimate before it starts and shows a running ETA, so narrow it
+with `--days 90` if you would rather not wait.
 
 ## Where your data lives
 

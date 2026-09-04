@@ -244,19 +244,18 @@ async def _run_scan(state: AppState, req: ScanRequest) -> None:
 
     try:
         skip = set() if req.fresh else state.store.known_message_ids()
+
+        # Persist as results arrive. The server dies with its terminal, and a
+        # long scan must not evaporate when that happens.
+        def save(batch):
+            state.store.save_scanned(batch)
+
         result, history_id = await scan_async(
             state.creds, days=days, max_emails=max_emails,
             bulk_only=bulk_only, skip_ids=skip, progress=progress,
+            on_batch=save,
         )
 
-        state.store.upsert_messages(
-            (m.id, m.from_email, m.subject, m.date.isoformat(),
-             m.size_estimate, int(bool(m.list_unsubscribe)))
-            for m in result.messages
-        )
-        for m in result.messages:
-            state.store.upsert_sender(m.from_email, m.from_name,
-                                      m.list_unsubscribe, m.list_unsubscribe_post)
         if history_id:
             state.store.set_meta("history_id", history_id)
 

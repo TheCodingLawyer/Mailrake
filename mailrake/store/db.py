@@ -244,6 +244,26 @@ class Store:
             )
         return len(rows)
 
+    def save_scanned(self, messages) -> int:
+        """Persist a batch of scanned messages and their senders.
+
+        Called repeatedly *during* a scan rather than once at the end. A full
+        scan can run for half an hour, and losing all of it because a terminal
+        closed is not an acceptable failure mode.
+        """
+        messages = list(messages)
+        if not messages:
+            return 0
+        self.upsert_messages(
+            (m.id, m.from_email, m.subject, m.date.isoformat(),
+             m.size_estimate, int(bool(m.list_unsubscribe)))
+            for m in messages
+        )
+        for m in messages:
+            self.upsert_sender(m.from_email, m.from_name,
+                               m.list_unsubscribe, m.list_unsubscribe_post)
+        return len(messages)
+
     def known_message_ids(self) -> set[str]:
         """Ids already cached, so an incremental scan can skip them."""
         return {

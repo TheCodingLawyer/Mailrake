@@ -110,7 +110,11 @@ def _print_summary(summary: RunSummary, dry_run: bool) -> None:
 # --- progress reporting --------------------------------------------------
 
 
+# Measured against a real mailbox; used only to estimate wait times.
+OBSERVED_MSGS_PER_SEC = 5.0
+
 _last_phase: str | None = None
+_phase_started: float | None = None
 
 
 def _cli_progress(phase: str, done: int, total: int) -> None:
@@ -127,7 +131,20 @@ def _cli_progress(phase: str, done: int, total: int) -> None:
     label = {"listing": "Listing messages",
              "fetching": "Reading metadata",
              "sweeping": "Retrying throttled messages"}.get(phase, phase)
-    print(f"\r  • {label}... {done}/{total}", end="", file=sys.stderr)
+
+    global _phase_started
+    if _phase_started is None or phase != _last_phase:
+        _phase_started = time.time()
+
+    eta = ""
+    if phase == "fetching" and done > 20 and total:
+        rate = done / max(time.time() - _phase_started, 0.001)
+        remaining = (total - done) / rate if rate else 0
+        if remaining > 5:
+            mins, secs = divmod(int(remaining), 60)
+            eta = f"  ~{mins}m{secs:02d}s left" if mins else f"  ~{secs}s left"
+
+    print(f"\r  • {label}... {done}/{total}{eta}   ", end="", file=sys.stderr)
     if phase in ("fetching", "sweeping") and done >= total:
         print(file=sys.stderr)
         _last_phase = None
@@ -419,6 +436,18 @@ def main(argv: list[str] | None = None) -> int:
     scope_label = "bulk categories" if settings.bulk_only else "all mail"
     print(dim(f"  Scan: {time_label} • {scope_label} • "
               f"max {settings.max_emails} emails, {settings.max_senders} senders"))
+
+    # Gmail's quota caps this near 5 messages/second, so a large window is a
+    # long wait. Say so up front rather than letting the user discover it.
+    est_minutes = settings.max_emails / OBSERVED_MSGS_PER_SEC / 60
+    if est_minutes >= 5 and not (args.cleanup or args.retry_failed
+                                 or args.block_remaining):
+        print()
+        print(yellow(f"  ! Up to {settings.max_emails} messages over {time_label} "
+                     f"— that can take ~{est_minutes:.0f} minutes."))
+        print(dim("    Gmail rate-limits metadata reads; this is its ceiling, not ours."))
+        print(dim("    Narrow it with --days 90 or --max-emails 2000."))
+        print(dim("    Progress is saved as it goes, so you can stop and resume."))
     _dry_banner(args.dry_run)
 
     print("  • Authenticating with Google...")
@@ -440,24 +469,29 @@ def main(argv: list[str] | None = None) -> int:
         if skip:
             print(dim(f"  • {len(skip)} messages already cached; fetching only what's new."))
 
-        result, history_id = scan(
-            creds,
-            days=settings.scan_days,
-            max_emails=settings.max_emails,
-            bulk_only=settings.bulk_only,
-            skip_ids=skip,
-            progress=_cli_progress,
-        )
-        infos = result.messages
+        saved = 0
 
-        store.upsert_messages(
-            (m.id, m.from_email, m.subject, m.date.isoformat(),
-             m.size_estimate, int(bool(m.list_unsubscribe)))
-            for m in infos
-        )
-        for m in infos:
-            store.upsert_sender(m.from_email, m.from_name,
-                                m.list_unsubscribe, m.list_unsubscribe_post)
+        def _save(batch):
+            nonlocal saved
+            saved += store.save_scanned(batch)
+
+        try:
+            result, history_id = scan(
+                creds,
+                days=settings.scan_days,
+                max_emails=settings.max_emails,
+                bulk_only=settings.bulk_only,
+                skip_ids=skip,
+                progress=_cli_progress,
+                on_batch=_save,
+            )
+        except KeyboardInterrupt:
+            print()
+            print(yellow(f"  • Cancelled — but {saved} messages were saved."))
+            print(dim("    Run again to carry on from here."))
+            return 1
+
+        infos = result.messages
         if history_id:
             store.set_meta("history_id", history_id)
 

@@ -77,6 +77,7 @@ SWEEP_PAUSE_SECONDS = 45.0
 MAX_CONCURRENCY = 12    # ceiling on in-flight requests; the pacer sets the pace
 
 ProgressFn = Callable[[str, int, int], None]
+BatchFn = Callable[[list["MessageInfo"]], None]
 
 
 class AdaptivePacer:
@@ -430,8 +431,15 @@ async def fetch_metadata(
     progress: ProgressFn | None = None,
     pacer: AdaptivePacer | None = None,
     sweep: bool = True,
+    on_batch: BatchFn | None = None,
+    batch_size: int = 50,
 ) -> FetchResult:
-    """Fetch metadata for every id, as fast as Gmail will actually allow."""
+    """Fetch metadata for every id, as fast as Gmail will actually allow.
+
+    `on_batch` is handed messages as they arrive rather than at the end. A
+    full scan can run for half an hour; without this, closing the terminal
+    threw the whole thing away.
+    """
     result = FetchResult()
     if not ids:
         return result
@@ -445,18 +453,40 @@ async def fetch_metadata(
         max_connections=MAX_CONCURRENCY,
         max_keepalive_connections=MAX_CONCURRENCY,
     )
+    pending: list[MessageInfo] = []
+
+    def flush() -> None:
+        if on_batch and pending:
+            on_batch(list(pending))
+        pending.clear()
+
     async with httpx.AsyncClient(timeout=30.0, limits=limits) as client:
         tasks = {
             asyncio.create_task(_fetch_one(client, creds, mid, pacer, sem)): mid
             for mid in ids
         }
-        for task in asyncio.as_completed(tasks):
-            info = await task
-            if info is not None:
-                result.messages.append(info)
-            done += 1
-            if progress and (done % 25 == 0 or done == total):
-                progress("fetching", done, total)
+        try:
+            for task in asyncio.as_completed(tasks):
+                info = await task
+                if info is not None:
+                    result.messages.append(info)
+                    pending.append(info)
+                    if len(pending) >= batch_size:
+                        flush()
+                done += 1
+                if progress and (done % 25 == 0 or done == total):
+                    progress("fetching", done, total)
+        finally:
+            # Runs on Ctrl+C and on cancellation too, so an interrupted scan
+            # keeps everything it had already fetched.
+            flush()
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            # Collect the cancelled siblings, otherwise asyncio prints
+            # "Task exception was never retrieved" tracebacks over the top of
+            # our own cancellation message.
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     fetched = {m.id for m in result.messages}
     leftover = [mid for mid in ids if mid not in fetched]
@@ -475,6 +505,8 @@ async def fetch_metadata(
             ])
         recovered = [m for m in swept if m is not None]
         result.messages.extend(recovered)
+        if on_batch and recovered:
+            on_batch(recovered)
         if progress:
             progress("sweeping", len(leftover), len(leftover))
         fetched |= {m.id for m in recovered}
@@ -493,6 +525,7 @@ async def scan_async(
     bulk_only: bool = True,
     skip_ids: set[str] | None = None,
     progress: ProgressFn | None = None,
+    on_batch: BatchFn | None = None,
 ) -> tuple[FetchResult, str | None]:
     """Full scan. Returns the fetch result and the mailbox's current historyId."""
     query = build_query(days, bulk_only)
@@ -511,7 +544,7 @@ async def scan_async(
     if skip_ids:
         ids = [i for i in ids if i not in skip_ids]
 
-    result = await fetch_metadata(creds, ids, progress, pacer)
+    result = await fetch_metadata(creds, ids, progress, pacer, on_batch=on_batch)
     return result, history_id
 
 
@@ -522,10 +555,11 @@ def scan(
     bulk_only: bool = True,
     skip_ids: set[str] | None = None,
     progress: ProgressFn | None = None,
+    on_batch: BatchFn | None = None,
 ) -> tuple[FetchResult, str | None]:
     """Blocking wrapper for CLI callers."""
     return asyncio.run(
-        scan_async(creds, days, max_emails, bulk_only, skip_ids, progress)
+        scan_async(creds, days, max_emails, bulk_only, skip_ids, progress, on_batch)
     )
 
 
