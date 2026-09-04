@@ -32,3 +32,6 @@ state.db-shm
 # Frontend
 web/node_modules/
 mailrake/server/static/
+
+# macOS
+.DS_Store
