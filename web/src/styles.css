@@ -88,6 +88,12 @@ button.primary:hover:not(:disabled) { filter: brightness(1.1); }
 button.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
 button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
+/* Keyboard focus must stay visible (this app is keyboard-driven) but the
+   browser default box looked broken on the tab strip. */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.tab:focus-visible { outline-offset: -2px; }
+
 label.check { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 13px; cursor: pointer; }
 
 /* --- sender rows --- */

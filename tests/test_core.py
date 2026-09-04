@@ -81,3 +81,38 @@ class TestListUnsubscribeParsing:
         targets = parse_list_unsubscribe("<https://ex.com/u>")
         assert "one-click" in describe_targets(targets, True)
         assert "one-click" not in describe_targets(targets, False)
+
+
+class TestInflectedKeywords:
+    """Real sender addresses are overwhelmingly plural.
+
+    1.x matched on a strict word boundary, so `accounts@`, `receipts@` and
+    `statements@` all slipped past the sensitivity guard. These lock the fix.
+    """
+
+    @pytest.mark.parametrize("email,name,expected", [
+        ("no-reply@accounts.google.com", "Google Accounts", "account"),
+        ("noreply-accounts@google.com", "Google", "account"),
+        ("receipts@shop.example", "Receipts", "receipt"),
+        ("invoices@vendor.example", "Invoices", "invoice"),
+        ("payments@x.example", "Payments", "payment"),
+        ("banking@x.example", "Banking", "bank"),
+        ("taxes@x.example", "Taxes", "tax"),
+        ("alerts@x.example", "Alerts", "alert"),
+        ("confirmed@x.example", "Confirmed", "confirm"),
+    ])
+    def test_inflections_are_matched(self, email, name, expected):
+        result = check_sender(email, name, KW)
+        assert result.is_sensitive
+        assert expected in result.reasons
+
+    @pytest.mark.parametrize("email,name", [
+        # The inflection allowance must not become a substring match.
+        ("news@governorsball.com", "Governors Ball"),
+        ("hello@figma.com", "Figma"),
+        ("news@substack.com", "Some Newsletter"),
+        ("team@taxidermy.example", "Taxidermy Weekly"),
+        ("hi@accountancyjobs.example", "Accountancy Jobs"),
+    ])
+    def test_unrelated_senders_stay_clean(self, email, name):
+        assert not check_sender(email, name, KW).is_sensitive

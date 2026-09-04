@@ -20,6 +20,11 @@ DEFAULT_SENSITIVE_KEYWORDS = [
     "2fa", "two-factor", "authentication", "confirm", "suspicious",
     "doctor", "medical", "health", "pharmacy", "insurance",
     "university", "school", "transcript", "enrollment",
+    # Added in 2.0: financial and identity terms that showed up in real
+    # mailboxes and were not covered.
+    "payment", "card", "credit", "debit", "refund", "transfer", "wire",
+    "mortgage", "loan", "pension", "hmrc", "revenue", "customs",
+    "passport", "visa", "license", "licence", "prescription", "appointment",
 ]
 
 DEFAULTS = {
@@ -55,9 +60,12 @@ class Settings:
                 store.get_setting("rate_limit_seconds", DEFAULTS["rate_limit_seconds"])
             ),
             bulk_only=bool(store.get_setting("bulk_only", DEFAULTS["bulk_only"])),
-            sensitive_keywords=list(
-                store.get_setting("sensitive_keywords", DEFAULTS["sensitive_keywords"])
-            ),
+            # Union rather than override: the keyword list is a safety floor,
+            # not a preference. Senders are exempted individually via trust(),
+            # so merging in newly added terms cannot silently un-protect anyone.
+            sensitive_keywords=sorted(set(
+                store.get_setting("sensitive_keywords", [])
+            ) | set(DEFAULTS["sensitive_keywords"])),
             never_trust_senders=list(
                 store.get_setting("never_trust_senders", DEFAULTS["never_trust_senders"])
             ),
